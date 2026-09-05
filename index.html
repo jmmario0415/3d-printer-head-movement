@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4-Axis Head Movement Controller</title>
+  <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">4X</div>
+        <div>
+          <h1>4-Axis High Speed 3D Printer</h1>
+          <p>Head motion commissioning console</p>
+        </div>
+      </div>
+
+      <div class="system-strip" aria-label="Controller state">
+        <label class="mode-picker">
+          <span>Controller</span>
+          <select id="mode-select" aria-label="Controller mode">
+            <option value="mock" selected>Mock</option>
+            <option value="moonraker">Moonraker</option>
+          </select>
+        </label>
+        <div class="state-readout">
+          <span class="readout-label">MODE</span>
+          <strong id="mode-value">MOCK</strong>
+        </div>
+        <div class="state-readout status-readout">
+          <span id="status-lamp" class="status-lamp" data-status="disconnected" aria-hidden="true"></span>
+          <span class="readout-label">STATUS</span>
+          <strong id="status-value">DISCONNECTED</strong>
+        </div>
+        <button id="emergency-button" type="button" class="emergency-button">
+          <span aria-hidden="true">■</span> EMERGENCY STOP
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel movement-panel" aria-labelledby="movement-title">
+        <div class="panel-heading">
+          <div>
+            <h2 id="movement-title">Head Movement</h2>
+            <span class="panel-subtitle">Logical 4-axis manual jog</span>
+          </div>
+          <div class="heading-legend" aria-label="Axis legend">
+            <span>X / Z · linear</span>
+            <span>θ1 · bed rotation</span>
+            <span>θ2 · nozzle rotation</span>
+          </div>
+        </div>
+
+        <div class="jog-table">
+          <div class="jog-table-head" aria-hidden="true">
+            <span>AXIS</span>
+            <span>NEGATIVE</span>
+            <span>POSITIVE</span>
+          </div>
+          <div id="jog-rows"></div>
+        </div>
+
+        <div class="parameter-bar" aria-label="Jog speed settings">
+          <span class="parameter-title">JOG PARAMETERS</span>
+          <label>
+            <span>Linear speed</span>
+            <input id="linear-speed" type="number" min="0.1" max="100" step="0.1" value="5">
+            <b>mm/s</b>
+          </label>
+          <label>
+            <span>Rotary speed</span>
+            <input id="rotary-speed" type="number" min="0.1" max="360" step="0.1" value="10">
+            <b>deg/s</b>
+          </label>
+          <span class="parameter-note">Changes apply to the next jog command.</span>
+        </div>
+      </section>
+
+      <div class="lower-grid">
+        <section class="panel position-panel" aria-labelledby="position-title">
+          <div class="panel-heading compact-heading">
+            <h2 id="position-title">Current Position</h2>
+            <span class="live-label"><i aria-hidden="true"></i> LOGICAL AXES</span>
+          </div>
+          <div class="position-table" role="table" aria-label="Axis positions">
+            <div class="position-header" role="row">
+              <span role="columnheader">AXIS</span>
+              <span role="columnheader">FUNCTION</span>
+              <span role="columnheader">POSITION</span>
+              <span role="columnheader">DEV. RANGE</span>
+            </div>
+            <div class="position-row" role="row">
+              <strong role="cell">X</strong><span role="cell">Linear</span>
+              <output data-position="X" role="cell">0.000 mm</output><small role="cell">0 — 300 mm</small>
+            </div>
+            <div class="position-row" role="row">
+              <strong role="cell">Z</strong><span role="cell">Linear</span>
+              <output data-position="Z" role="cell">0.000 mm</output><small role="cell">0 — 200 mm</small>
+            </div>
+            <div class="position-row" role="row">
+              <strong role="cell">Theta1</strong><span role="cell">Bed rotation</span>
+              <output data-position="theta1" role="cell">0.000 °</output><small role="cell">−180 — 180°</small>
+            </div>
+            <div class="position-row" role="row">
+              <strong role="cell">Theta2</strong><span role="cell">Nozzle rotation</span>
+              <output data-position="theta2" role="cell">0.000 °</output><small role="cell">−180 — 180°</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel controls-panel" aria-labelledby="controls-title">
+          <div class="panel-heading compact-heading">
+            <h2 id="controls-title">Manual Controls</h2>
+            <span class="panel-code">KB-JOG</span>
+          </div>
+          <div class="control-content">
+            <div class="step-settings">
+              <label>
+                <span>Keyboard linear step</span>
+                <span class="input-with-unit"><input id="linear-step" type="number" min="0.01" max="50" step="0.01" value="1"><b>mm</b></span>
+              </label>
+              <label>
+                <span>Keyboard rotary step</span>
+                <span class="input-with-unit"><input id="rotary-step" type="number" min="0.1" max="30" step="0.1" value="1"><b>deg</b></span>
+              </label>
+            </div>
+            <div class="keyboard-map" aria-label="Keyboard mapping">
+              <span><kbd>←</kbd><kbd>→</kbd> X− / X+</span>
+              <span><kbd>↓</kbd><kbd>↑</kbd> Z− / Z+</span>
+              <span><kbd>Q</kbd><kbd>E</kbd> θ1− / θ1+</span>
+              <span><kbd>A</kbd><kbd>D</kbd> θ2− / θ2+</span>
+            </div>
+            <div class="action-row">
+              <button id="home-button" type="button" class="control-button primary-control" data-motion-control>HOME / ZERO</button>
+              <button id="refresh-button" type="button" class="control-button">REFRESH POSITION</button>
+              <button id="reset-emergency-button" type="button" class="control-button reset-control" hidden>RESET MOCK E-STOP</button>
+            </div>
+            <p class="control-caveat">Moonraker mode: HOME sends <code>G28 X Z</code> only. Rotary home/zero remains unconfigured.</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel log-panel" aria-labelledby="log-title">
+        <div class="panel-heading compact-heading">
+          <div class="log-title-group"><h2 id="log-title">Event Log</h2><span>Motion / safety / connection events</span></div>
+          <button id="clear-log" type="button" class="text-button">CLEAR LOG</button>
+        </div>
+        <div id="event-log" class="event-log" role="log" aria-live="polite" aria-relevant="additions"></div>
+      </section>
+
+      <footer class="safety-note">
+        <strong>SAFETY NOTICE</strong>
+        <span>Software UI limits do not replace Klipper motion limits, endstop configuration, or hardware safety measures. Displayed ranges are temporary development values.</span>
+      </footer>
+    </main>
+  </div>
+
+  <script src="mock-api.js"></script>
+  <script src="robot-api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
