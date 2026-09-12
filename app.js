@@ -81,11 +81,17 @@
     let mode = CONFIG.mode;
     let busy = false;
     let emergency = false;
+    let connected = false;
+    let connecting = false;
+    let stopping = false;
+    let panel = null;
+    const urlInput = document.querySelector('#moonraker-url');
+    const connectButton = document.querySelector('#connect-button');
 
     function createRobot(selectedMode) {
       return selectedMode === 'mock'
         ? new global.MockRobot({ limits: CONFIG.limits, simulateDelay: true })
-        : new global.MoonrakerRobot({ baseUrl: CONFIG.moonrakerUrl });
+        : new global.MoonrakerRobot({ baseUrl: urlInput.value.trim(), config: global.MOONRAKER_CONFIG });
     }
 
     function log(message, level = 'info') {
@@ -94,6 +100,7 @@
       const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
       line.textContent = `[${time}] ${message}`;
       elements.log.append(line);
+      while (elements.log.children.length > 500) elements.log.firstElementChild.remove();
       elements.log.scrollTop = elements.log.scrollHeight;
     }
 
@@ -108,14 +115,20 @@
     }
 
     function setControls() {
-      const blocked = busy || emergency;
+      const blocked = busy || emergency || connecting || !connected;
       document.querySelectorAll('[data-motion-control]').forEach((control) => {
-        control.disabled = blocked;
+        control.disabled = blocked || (mode === 'moonraker' && (control.dataset.axis?.startsWith('theta') ||
+          (control === elements.home && !global.MOONRAKER_CONFIG.linearHomingVerified)));
       });
-      elements.refresh.disabled = busy;
-      elements.modeSelect.disabled = busy;
+      document.querySelectorAll('[data-device-control]').forEach((control) => {
+        control.disabled = blocked || control.dataset.unavailable === 'true';
+      });
+      elements.refresh.disabled = busy || connecting || !connected;
+      elements.modeSelect.disabled = busy || connecting || stopping;
+      connectButton.disabled = busy || connecting || stopping;
+      urlInput.disabled = mode !== 'moonraker' || busy || connecting || stopping;
       elements.resetEmergency.hidden = mode !== 'mock';
-      elements.resetEmergency.disabled = !emergency || busy;
+      elements.resetEmergency.disabled = !emergency || busy || connecting || stopping;
       elements.emergency.disabled = false;
     }
 
@@ -129,10 +142,21 @@
     }
 
     async function refreshPosition({ quiet = false } = {}) {
+      const requestRobot = robot;
       try {
-        renderPosition(await robot.getPosition());
+        const position = await requestRobot.getPosition();
+        if (requestRobot !== robot) return;
+        renderPosition(position);
         if (!quiet) log('Position refreshed');
       } catch (error) {
+        if (requestRobot !== robot) return;
+        if (robot.getStatus() === 'disconnected') {
+          connected = false;
+          panel?.stop();
+          renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+          if (!emergency) setStatus('disconnected', error.message);
+          setControls();
+        }
         if (!quiet) log(`Position refresh failed: ${error.message}`, 'error');
         throw error;
       }
@@ -143,8 +167,8 @@
     }
 
     async function runMotion(action, requestMessage, completeMessage) {
-      if (busy || emergency) {
-        log(emergency ? 'Motion blocked: emergency stop is active' : 'Motion blocked: controller is busy', 'warn');
+      if (busy || emergency || connecting || !connected) {
+        log(emergency ? 'Control blocked: emergency stop is active' : 'Control blocked: busy or disconnected', 'warn');
         return;
       }
       busy = true;
@@ -154,11 +178,15 @@
       try {
         await action();
         await refreshPosition({ quiet: true });
-        if (!emergency) {
+        if (!emergency && connected) {
           setStatus('ready');
           log(completeMessage());
         }
       } catch (error) {
+        if (robot.getStatus() === 'disconnected') {
+          connected = false; panel?.stop();
+          renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+        }
         if (!emergency) setStatus('error', error.message);
         log(error.message, 'error');
       } finally {
@@ -168,6 +196,10 @@
     }
 
     async function jog(axis, amount, source = 'Button') {
+      if (mode === 'moonraker' && axis.startsWith('theta')) {
+        log(`${AXIS_META[axis].label} Moonraker control is not configured yet.`, 'warn');
+        return;
+      }
       const meta = AXIS_META[axis];
       const signed = `${amount > 0 ? '+' : ''}${amount}`;
       const unit = meta.rotary ? 'deg' : 'mm';
@@ -218,37 +250,70 @@
     }
 
     async function connect(selectedMode) {
+      if (busy || connecting || stopping) return;
+      connecting = true;
+      connected = false;
+      panel?.stop();
       mode = selectedMode;
       emergency = false;
       robot = createRobot(mode);
       elements.modeValue.textContent = mode.toUpperCase();
       elements.modeSelect.value = mode;
+      document.querySelector('#source-note').textContent = mode === 'mock' ? 'MOCK · simulated devices only' : 'MOONRAKER · real hardware control';
       setStatus('disconnected');
       setControls();
       log(`Connecting in ${mode.toUpperCase()} mode…`);
       try {
+        if (mode === 'moonraker') {
+          const url = new URL(urlInput.value.trim());
+          if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+            throw new Error('Enter an HTTP(S) Moonraker base URL without credentials, query or fragment.');
+          }
+        }
         await robot.connect();
-        setStatus(robot.getStatus());
+        if (emergency) throw new Error('Connection interrupted by emergency stop.');
+        if (robot.getStatus() !== 'ready') throw new Error(`Controller is ${robot.getStatus()}; reconnect when ready.`);
         await refreshPosition({ quiet: true });
+        await panel.bind(robot, mode);
+        if (emergency) throw new Error('Connection interrupted by emergency stop.');
+        connected = true;
+        setStatus('ready');
         log(mode === 'mock' ? 'Mock controller ready' : 'Moonraker connection ready');
       } catch (error) {
-        setStatus(robot.getStatus(), error.message);
+        panel?.stop();
+        if (!emergency) setStatus('disconnected', error.message);
         renderPosition({ X: null, Z: null, theta1: null, theta2: null });
         log(`Connection failed: ${error.message}`, 'error');
       } finally {
+        connecting = false;
         setControls();
       }
     }
 
     buildJogRows();
+    panel = global.initializeCommissioning(document, {
+      run: runMotion, log, controls: setControls,
+      fault(error) {
+        connected = false;
+        renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+        if (!emergency) setStatus('disconnected', error.message);
+        setControls(); log(`Telemetry failed: ${error.message}`, 'error');
+      }
+    });
+    connectButton.addEventListener('click', () => connect(elements.modeSelect.value));
     elements.modeSelect.addEventListener('change', () => connect(elements.modeSelect.value));
     elements.home.addEventListener('click', () => runMotion(
-      () => robot.home(),
+      () => {
+        if (mode === 'moonraker' && !global.MOONRAKER_CONFIG.linearHomingVerified) throw new Error('Linear homing is not verified in commissioning-config.js.');
+        return robot.home();
+      },
       mode === 'mock' ? 'HOME / ZERO requested' : 'Linear X/Z homing requested',
       () => mode === 'mock' ? 'HOME / ZERO complete → all axes 0' : 'Linear X/Z homing complete'
     ));
     elements.refresh.addEventListener('click', () => refreshPosition().catch(() => {}));
     elements.emergency.addEventListener('click', async () => {
+      if (stopping || !robot) return;
+      stopping = true;
       log('EMERGENCY STOP requested', 'emergency');
       emergency = true;
       setStatus('emergency-stop');
@@ -258,17 +323,29 @@
         log('EMERGENCY STOP active', 'emergency');
       } catch (error) {
         log(`Emergency stop request failed: ${error.message}`, 'error');
+      } finally {
+        stopping = false;
+        setControls();
       }
     });
     elements.resetEmergency.addEventListener('click', async () => {
+      if (mode !== 'mock' || busy || connecting || stopping || !emergency) return;
+      busy = true;
+      setControls();
       try {
         await robot.resetEmergencyStop();
         emergency = false;
+        if (!panel.isBound()) await panel.bind(robot, mode);
+        else await panel.refresh();
+        await refreshPosition({ quiet: true });
+        connected = true;
         setStatus('ready');
-        setControls();
         log('Mock emergency stop reset', 'warn');
       } catch (error) {
         log(error.message, 'error');
+      } finally {
+        busy = false;
+        setControls();
       }
     });
     elements.clearLog.addEventListener('click', () => elements.log.replaceChildren());

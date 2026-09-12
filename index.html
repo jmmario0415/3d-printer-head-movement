@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>4-Axis Head Movement Controller</title>
+  <title>4-Axis Commissioning Console</title>
   <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -14,7 +14,7 @@
         <div class="brand-mark" aria-hidden="true">4X</div>
         <div>
           <h1>4-Axis High Speed 3D Printer</h1>
-          <p>Head motion commissioning console</p>
+          <p>Hardware commissioning console</p>
         </div>
       </div>
 
@@ -42,6 +42,13 @@
     </header>
 
     <main>
+      <div class="connection-bar">
+        <strong id="source-note">MOCK · simulated devices only</strong>
+        <label>Moonraker URL <input id="moonraker-url" type="url" placeholder="Controller base URL" aria-label="Moonraker base URL"></label>
+        <button id="connect-button" class="control-button" type="button">RECONNECT</button>
+        <span>Mappings: commissioning-config.js</span>
+      </div>
+      <div id="commissioning-panels"></div>
       <section class="panel movement-panel" aria-labelledby="movement-title">
         <div class="panel-heading">
           <div>
@@ -159,8 +166,10 @@
     </main>
   </div>
 
+  <script src="commissioning-config.js"></script>
   <script src="mock-api.js"></script>
   <script src="robot-api.js"></script>
+  <script src="commissioning-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

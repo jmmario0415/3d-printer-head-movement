@@ -201,3 +201,40 @@ kbd { min-width: 21px; height: 20px; margin-right: 3px; display: inline-grid; pl
   .jog-buttons { gap: 2px; padding-left: 3px; padding-right: 3px; }
   .jog-button { font-size: 10px; }
 }
+
+.connection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 10px; background: #f7f9fa; border: 1px solid var(--line-dark); font-size: 11px; }
+.topbar { position: sticky; top: 0; z-index: 10; }
+.lower-grid > .panel { margin-top: 0; }
+.connection-bar strong { color: var(--blue); margin-right: auto; }
+.connection-bar label { display: flex; align-items: center; gap: 7px; }
+.connection-bar input { width: 230px; padding: 5px; border: 1px solid var(--line-dark); }
+.connection-bar > span { color: var(--muted); font-size: 10px; }
+.thermal-grid, .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.thermal-grid > .panel, .test-grid > .panel { margin-top: 0; min-width: 0; }
+.thermal-grid .panel-heading span, .test-grid .panel-heading span { font-size: 10px; color: var(--muted); }
+.device-content { padding: 8px 10px; }
+.heater-row + .heater-row { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.device-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: 7px; }
+.device-heading .reading { margin-left: auto; font: bold 15px Consolas, monospace; color: #21394c; }
+.availability { color: var(--muted); font-size: 10px; }
+.device-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.device-actions label { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+.device-actions input, .fan-row input { width: 63px; padding: 5px; border: 1px solid var(--line-dark); text-align: right; }
+.device-actions .control-button { padding: 0 8px; }
+.device-note { margin: 0; padding: 0 10px 9px; color: var(--muted); font-size: 10px; }
+#temperature-chart { display: block; width: 100%; height: 175px; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 3px 12px 8px; font-size: 10px; color: var(--muted); }
+.tool-key { color: #b54134; } .bed-key { color: #276b9a; }
+.fan-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 7px 0; }
+.fan-row output { min-width: 40px; font-family: Consolas, monospace; }
+.fan-row small { font-size: 10px; color: var(--muted); }
+.macro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+.macro-grid > div { min-width: 0; }
+.macro-button { width: 100%; text-align: left; min-height: 30px; }
+.macro-grid small { display: block; margin-top: 3px; font-size: 10px; color: var(--muted); }
+#macro-result { display: block; padding: 0 10px 8px; font: 11px Consolas, monospace; color: #275d88; overflow-wrap: anywhere; }
+@media (max-width: 1080px) {
+  .thermal-grid { grid-template-columns: 1.15fr .85fr; }
+  .device-heading { flex-wrap: wrap; gap: 5px; }
+  .availability { width: 100%; }
+}
