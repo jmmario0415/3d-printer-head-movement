@@ -22,6 +22,7 @@
       </div>`;
     let robot = null, mode = 'mock', generation = 0, timer = null, telemetry = null, history = [];
     let polling = null;
+    let lastSample = null;
     const heaterRows = new Map(), fanRows = new Map(), macroRows = new Map();
     const status = document.querySelector('#telemetry-status');
     const result = document.querySelector('#macro-result');
@@ -74,10 +75,11 @@
       item.append(button, note);
       let outcome = '';
       action(button, async () => {
+        const commandRobot = robot;
         result.textContent = `${macro.label}: running`;
-        try { outcome = await robot.runMacro(macro.id); }
+        try { outcome = await commandRobot.runMacro(macro.id); }
         catch (error) {
-          result.textContent = `${macro.label}: ${robot.getStatus() === 'emergency-stop' ? 'interrupted' : 'error'} · ${error.message}`;
+          result.textContent = `${macro.label}: ${error.outcomeUnknown ? 'outcome unknown' : commandRobot.getStatus() === 'emergency-stop' ? 'interrupted' : 'error'} · ${error.message}`;
           throw error;
         }
       }, `${macro.label} requested`, () => `${macro.label}: ${outcome}`);
@@ -150,7 +152,7 @@
         if (ownGeneration !== generation) return;
         if (!['ready', 'busy', 'emergency-stop'].includes(data.state)) throw new Error(`Klipper state: ${data.state}`);
         telemetry = data; render(data);
-        status.textContent = `${data.simulated ? 'SIMULATED' : 'LIVE'} · ${new Date().toLocaleTimeString()}`;
+        lastSample = Date.now(); updateAge();
         history.push({ time: Date.now(), heaters: data.heaters }); if (history.length > 180) history.shift(); draw();
       })();
       polling = task;
@@ -159,7 +161,27 @@
     }
     function stop() {
       generation++; clearTimeout(timer); timer = null; polling = null; robot = null; telemetry = null; history = [];
+      lastSample = null;
       status.textContent = 'No live data'; result.textContent = 'No test run'; render(null); draw();
+    }
+    function invalidate() {
+      generation++; clearTimeout(timer); timer = null; polling = null; robot = null; telemetry = null;
+      if (history.at(-1)?.heaters && Object.keys(history.at(-1).heaters).length) {
+        history.push({ time: Date.now(), heaters: {} });
+        if (history.length > 180) history.shift();
+      }
+      render(null); draw(); updateAge();
+    }
+    function updateAge() {
+      const age = lastSample === null ? null : Math.floor((Date.now() - lastSample) / 1000);
+      const stale = !telemetry || age > 5;
+      status.dataset.stale = String(stale);
+      status.textContent = age === null ? 'No live data' :
+        `${stale ? 'STALE' : mode === 'mock' ? 'SIMULATED' : 'LIVE'} · ${new Date(lastSample).toLocaleTimeString()} · ${age}s ago`;
+      if (robot && lastSample !== null && age > 5) {
+        invalidate();
+        fault(new Error('Telemetry stale for over 5 seconds; reconnect required.'));
+      }
     }
     async function bind(nextRobot, nextMode) {
       stop(); robot = nextRobot; mode = nextMode;
@@ -173,7 +195,7 @@
         try { await refresh(); }
         catch (error) {
           if (ownGeneration !== generation) return;
-          telemetry = null; history.push({ time: Date.now(), heaters: {} }); render(null); draw(); status.textContent = 'STALE · reconnect required';
+          invalidate();
           fault(error); return;
         }
         if (ownGeneration === generation) timer = setTimeout(poll, 1000);
@@ -181,7 +203,9 @@
       if (ownGeneration === generation) timer = setTimeout(poll, 1000);
     }
     render(null); draw();
-    return { bind, stop, refresh, isBound: () => robot !== null };
+    const ageTimer = setInterval(updateAge, 1000);
+    global.addEventListener?.('pagehide', () => { clearInterval(ageTimer); stop(); }, { once: true });
+    return { bind, stop, invalidate, refresh, isBound: () => robot !== null };
   }
   global.initializeCommissioning = initializeCommissioning;
 })(typeof window !== 'undefined' ? window : globalThis);

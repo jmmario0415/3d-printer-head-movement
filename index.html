@@ -48,6 +48,12 @@
         <button id="connect-button" class="control-button" type="button">RECONNECT</button>
         <span>Mappings: commissioning-config.js</span>
       </div>
+      <div class="diagnostic-bar" aria-live="polite">
+        <span>CONNECTION <strong id="connection-state">DISCONNECTED</strong></span>
+        <span>LAST POSITION <time id="position-updated">No sample</time></span>
+        <span id="operation-detail">No command pending</span>
+        <button id="acknowledge-outcome" type="button" class="control-button" hidden>STATE CHECKED · UNLOCK</button>
+      </div>
       <div id="commissioning-panels"></div>
       <section class="panel movement-panel" aria-labelledby="movement-title">
         <div class="panel-heading">

@@ -147,7 +147,7 @@ test('Moonraker disconnected and stopped controllers reject control', async () =
 
 test('Moonraker timeout and JSON API errors are explicit and latch disconnection', async () => {
   const robot = new MoonrakerRobot({ timeoutMs: 10, fetchImpl: () => new Promise(() => {}) });
-  await assert.rejects(robot.connect(), /timeout.*outcome unknown/);
+  await assert.rejects(robot.connect(), /timeout.*Read response unavailable/);
   assert.equal(robot.getStatus(), 'disconnected');
   const errorRobot = new MoonrakerRobot({ fetchImpl: async () => ({ ok: true, json: async () => ({ error: { message: 'fault' } }) }) });
   await assert.rejects(errorRobot.connect(), /API error.*fault/);
@@ -157,12 +157,53 @@ test('E-stop bypasses pending Moonraker macro and late acknowledgement cannot re
   let finish;
   const { robot } = realFixture({ fetchImpl: async (url) => {
     if (url.endsWith('/script')) return new Promise((resolve) => { finish = () => resolve({ ok: true, json: async () => ({ result: 'ok' }) }); });
-    return { ok: true, json: async () => ({ result: url.endsWith('/info') ? { state: 'ready' } : { objects: ['gcode_macro TEST_FANS'] } }) };
+    return { ok: true, json: async () => ({ result: url.endsWith('/info') ? { state: 'ready' } : url.endsWith('/list') ? { objects: ['gcode_macro TEST_FANS'] } : 'ok' }) };
   } });
   await robot.connect();
   const execution = robot.runMacro('fans');
   const rejected = assert.rejects(execution, /interrupted/);
   while (!finish) await new Promise((resolve) => setImmediate(resolve));
+  await robot.emergencyStop(); finish(); await rejected;
+  assert.equal(robot.getStatus(), 'emergency-stop');
+});
+
+test('read timeouts are not uncertain commands; control timeouts are never retried', async () => {
+  let scripts = 0, finish;
+  const robot = new MoonrakerRobot({ timeoutMs: 15, fetchImpl: async (url) => {
+    if (url.endsWith('/info')) return { ok: true, json: async () => ({ result: { state: 'ready' } }) };
+    if (url.endsWith('/script')) { scripts++; return new Promise((resolve) => { finish = () => resolve({ ok: true, json: async () => ({ result: 'ok' }) }); }); }
+    return new Promise(() => {});
+  } });
+  await robot.connect();
+  await assert.rejects(robot.getPosition(), (error) => error.code === 'TIMEOUT' && error.outcomeUnknown === false);
+  await robot.connect();
+  await assert.rejects(robot.jog('X', 1, 5), (error) => error.code === 'TIMEOUT' && error.outcomeUnknown === true);
+  assert.equal(scripts, 1);
+  finish(); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(robot.getStatus(), 'disconnected');
+});
+
+test('a failed emergency request leaves the adapter locked and exposes unknown outcome', async () => {
+  const { robot } = realFixture({ fetchImpl: async () => { throw new Error('offline'); } });
+  await assert.rejects(robot.emergencyStop(), (error) => error.outcomeUnknown === true && error.code === 'REQUEST_FAILED');
+  assert.equal(robot.getStatus(), 'emergency-stop');
+  await assert.rejects(robot.jog('X', 1, 5), /emergency-stop/);
+});
+
+test('HTTP success without a command acknowledgement is not a confirmed stop', async () => {
+  const robot = new MoonrakerRobot({ fetchImpl: async () => ({ ok: true, json: async () => ({}) }) });
+  await assert.rejects(robot.emergencyStop(), (error) => error.outcomeUnknown && /Missing command acknowledgement/.test(error.message));
+  assert.equal(robot.getStatus(), 'emergency-stop');
+});
+
+test('late connect response after emergency stop cannot restore ready', async () => {
+  let finish;
+  const robot = new MoonrakerRobot({ fetchImpl: async (url) => {
+    if (url.endsWith('/info')) return new Promise((resolve) => { finish = () => resolve({ ok: true, json: async () => ({ result: { state: 'ready' } }) }); });
+    return { ok: true, json: async () => ({ result: 'ok' }) };
+  } });
+  const connecting = robot.connect();
+  const rejected = assert.rejects(connecting, /Emergency stop/);
   await robot.emergencyStop(); finish(); await rejected;
   assert.equal(robot.getStatus(), 'emergency-stop');
 });

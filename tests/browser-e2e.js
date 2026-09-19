@@ -175,13 +175,28 @@ async function main() {
   // HTTP fixture inside this isolated page: no real printer requests are sent.
   await evaluate(`(() => {
     window.__calls = []; window.__fail = false; window.__printerState = 'ready';
+    window.__scriptMode = 'normal'; window.__stopMode = 'normal'; window.__holdTelemetry = false;
+    window.__timeout = 10000;
+    const BaseRobot = window.MoonrakerRobot;
+    window.MoonrakerRobot = class extends BaseRobot {
+      constructor(options) { super({ ...options, timeoutMs: window.__timeout }); }
+    };
     window.fetch = async (url, options) => {
       window.__calls.push({ url, method: options.method, body: options.body });
       if (window.__fail) throw new Error('Simulated link loss');
+      if (url.endsWith('/info') && window.__holdInfo) return new Promise(resolve => { window.__finishInfo = () => resolve({ ok: true, json: async () => ({ result: { state: 'ready' } }) }); });
+      if (url.endsWith('/emergency_stop')) {
+        if (window.__stopMode === 'fail') throw new Error('Simulated stop response loss');
+        if (window.__stopMode === 'pending') return new Promise(resolve => { window.__finishStop = () => resolve({ ok: true, json: async () => ({ result: 'ok' }) }); });
+      }
+      if (url.endsWith('/script') && window.__scriptMode === 'drop') return new Promise(resolve => { window.__finishScript = () => resolve({ ok: true, json: async () => ({ result: 'ok' }) }); });
       let result = 'ok';
       if (url.endsWith('/info')) result = { state: window.__printerState };
       if (url.endsWith('/list')) result = { objects: ['extruder', 'fan_generic cooling', 'gcode_macro TEST_FANS'] };
       if (url.endsWith('/query')) result = { status: { webhooks: { state: 'ready' }, toolhead: { position: [2, 0, 3, 0] }, extruder: { temperature: 28, target: 0 }, 'fan_generic cooling': { speed: 0.25 } } };
+      if (url.endsWith('/query') && JSON.parse(options.body).objects.webhooks && window.__holdTelemetry) {
+        return new Promise(resolve => { window.__finishTelemetry = () => resolve({ ok: true, json: async () => ({ result }) }); });
+      }
       return { ok: true, json: async () => ({ result }) };
     };
     document.querySelector('#moonraker-url').value = 'http://fixture.invalid';
@@ -205,6 +220,78 @@ async function main() {
   await click('[data-macro="fans"]');
   await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
   await waitFor(`document.querySelector('#macro-result').textContent.includes('inspect hardware')`);
+
+  // E-stop takes priority even during connection establishment.
+  await evaluate(`window.__holdInfo = true`);
+  await click('#connect-button');
+  await waitFor(`typeof window.__finishInfo === 'function'`);
+  await click('#emergency-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'STOP ACKNOWLEDGED'`);
+  await evaluate(`window.__finishInfo(); window.__holdInfo = false`);
+  await waitFor(`!document.querySelector('#connect-button').disabled`);
+  assert.equal(await evaluate(`document.querySelector('#status-value').textContent`), 'STOP ACKNOWLEDGED');
+  assert.equal(await evaluate(`document.querySelector('.jog-button').disabled`), true);
+  await click('#connect-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+
+  // Stop acknowledgement is distinct from physical verification; failures stay locked.
+  await evaluate(`window.__stopMode = 'pending'`);
+  await click('#emergency-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'STOP REQUESTING'`);
+  assert.equal(await evaluate(`document.querySelector('.jog-button').disabled`), true);
+  await evaluate(`window.__finishStop()`);
+  await waitFor(`document.querySelector('#status-value').textContent === 'STOP ACKNOWLEDGED'`);
+  assert.equal(await evaluate(`document.querySelector('#operation-detail').textContent.includes('not been independently verified')`), true);
+  await evaluate(`window.__stopMode = 'normal'`);
+  await click('#connect-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+  await evaluate(`window.__stopMode = 'fail'`);
+  await click('#emergency-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'STOP UNCONFIRMED'`);
+  assert.equal(await evaluate(`document.querySelector('#connection-state').textContent`), 'DISCONNECTED');
+  assert.equal(await evaluate(`document.querySelector('#emergency-button').disabled`), false);
+  assert.equal(await evaluate(`document.querySelector('#operation-detail').textContent.includes('actual stop unconfirmed')`), true);
+
+  // Unknown control outcomes survive reconnect and require an explicit state check.
+  await evaluate(`window.__stopMode = 'normal'; window.__timeout = 80`);
+  await click('#connect-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+  await evaluate(`window.__scriptMode = 'drop'; window.__beforeScripts = window.__calls.filter(c => c.url.endsWith('/script')).length`);
+  await click('.jog-button[data-axis="X"][data-amount="1"]');
+  await waitFor(`document.querySelector('#status-value').textContent === 'OUTCOME UNKNOWN'`);
+  assert.equal(await evaluate(`window.__calls.filter(c => c.url.endsWith('/script')).length - window.__beforeScripts`), 1);
+  await evaluate(`window.__finishScript(); window.__scriptMode = 'normal'; window.__timeout = 10000`);
+  await click('#connect-button');
+  await waitFor(`document.querySelector('#connection-state').textContent === 'CONNECTED'`);
+  assert.equal(await evaluate(`document.querySelector('#status-value').textContent`), 'OUTCOME UNKNOWN');
+  assert.equal(await evaluate(`document.querySelector('.jog-button').disabled`), true);
+  await click('#acknowledge-outcome');
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+  assert.equal(await evaluate(`window.__calls.filter(c => c.url.endsWith('/script')).length - window.__beforeScripts`), 1, 'reconnect/unlock must never replay commands');
+
+  // A hanging telemetry response becomes stale before the HTTP timeout; late data stays discarded.
+  await evaluate(`window.__holdTelemetry = true; window.__finishTelemetry = null`);
+  await waitFor(`typeof window.__finishTelemetry === 'function'`);
+  await waitFor(`document.querySelector('#connection-state').textContent === 'DISCONNECTED'`, 8000);
+  assert.equal(await evaluate(`document.querySelector('#telemetry-status').textContent.includes('STALE')`), true);
+  assert.equal(await evaluate(`document.querySelector('#position-updated').textContent.includes('STALE')`), true);
+  await evaluate(`window.__finishTelemetry(); window.__holdTelemetry = false`);
+  await sleep(100);
+  assert.equal(await evaluate(`document.querySelector('[data-heater="tool0"] .reading').textContent`), 'N/A');
+  await click('#connect-button');
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+
+  // An old connection's late response must not cross into a new Mock session.
+  await evaluate(`window.__holdTelemetry = true; window.__finishTelemetry = null`);
+  await waitFor(`typeof window.__finishTelemetry === 'function'`);
+  await evaluate(`document.querySelector('#mode-select').value = 'mock'; document.querySelector('#mode-select').dispatchEvent(new Event('change'))`);
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
+  await evaluate(`window.__finishTelemetry(); window.__holdTelemetry = false`);
+  await sleep(100);
+  assert.equal(await evaluate(`document.querySelector('[data-heater="tool0"] .reading').textContent`), '22.0 / 0.0 °C');
+  assert.equal(await evaluate(`document.querySelector('#telemetry-status').textContent.includes('SIMULATED')`), true);
+  await evaluate(`document.querySelector('#mode-select').value = 'moonraker'; document.querySelector('#mode-select').dispatchEvent(new Event('change'))`);
+  await waitFor(`document.querySelector('#status-value').textContent === 'READY'`);
   await evaluate(`window.__fail = true`);
   await waitFor(`document.querySelector('#status-value').textContent === 'DISCONNECTED'`);
   assert.equal(await evaluate(`document.querySelector('[data-heater="tool0"] .reading').textContent`), 'N/A');

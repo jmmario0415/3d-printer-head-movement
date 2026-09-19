@@ -249,6 +249,7 @@
 
     async #request(path, options, timeoutMs = this.timeoutMs) {
       const abort = new AbortController();
+      const controlRequest = ['/printer/gcode/script', '/printer/emergency_stop'].includes(path);
       let timer;
       try {
         return await Promise.race([
@@ -261,18 +262,25 @@
             }
             const data = await response.json();
             if (data?.error) throw new Error(`Moonraker API error: ${JSON.stringify(data.error)}`);
+            if (controlRequest && data?.result !== 'ok') throw new Error('Missing command acknowledgement.');
             return data;
           })(),
           new Promise((_, reject) => {
             timer = setTimeout(() => {
               abort.abort();
-              reject(new Error(`Moonraker timeout: ${path}. Command outcome unknown; inspect controller before reconnecting.`));
+              reject(new Error(`Moonraker timeout: ${path}. ${controlRequest ? 'Command outcome unknown; inspect controller before reconnecting.' : 'Read response unavailable; reconnect required.'}`));
             }, timeoutMs);
           })
         ]);
       } catch (error) {
         if (this.status !== 'emergency-stop') this.status = 'disconnected';
-        throw new Error(`${path}: ${error.message}`);
+        const failure = new Error(`${path}: ${error.message}`);
+        failure.code = abort.signal.aborted ? 'TIMEOUT' : 'REQUEST_FAILED';
+        failure.path = path;
+        // A lost response or a script error may follow partial execution.
+        // Queries also use POST; only control endpoints have uncertain effects.
+        failure.outcomeUnknown = controlRequest;
+        throw failure;
       } finally {
         clearTimeout(timer);
       }

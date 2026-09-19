@@ -205,6 +205,9 @@ kbd { min-width: 21px; height: 20px; margin-right: 3px; display: inline-grid; pl
 .connection-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 10px; background: #f7f9fa; border: 1px solid var(--line-dark); font-size: 11px; }
 .topbar { position: sticky; top: 0; z-index: 10; }
 .lower-grid > .panel { margin-top: 0; }
+.diagnostic-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 7px 10px; margin-bottom: 10px; border: 1px solid var(--line); background: #f7f9fa; font-size: 10px; color: var(--muted); }
+.diagnostic-bar [data-stale="true"], #operation-detail[data-warning="true"], #telemetry-status[data-stale="true"] { color: #a03721; font-weight: 700; }
+.status-lamp[data-status="stop-pending"], .status-lamp[data-status="stop-acknowledged"], .status-lamp[data-status="stop-unconfirmed"], .status-lamp[data-status="outcome-unknown"] { background: #d43b32; }
 .connection-bar strong { color: var(--blue); margin-right: auto; }
 .connection-bar label { display: flex; align-items: center; gap: 7px; }
 .connection-bar input { width: 230px; padding: 5px; border: 1px solid var(--line-dark); }

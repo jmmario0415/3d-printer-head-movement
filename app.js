@@ -85,6 +85,16 @@
     let connecting = false;
     let stopping = false;
     let panel = null;
+    let stopState = null;
+    let positionUpdated = null;
+    let positionStale = true;
+    let readingGeneration = 0;
+    let controllerKey = 'mock';
+    const uncertainCommands = new Map();
+    const connectionState = document.querySelector('#connection-state');
+    const positionTime = document.querySelector('#position-updated');
+    const operationDetail = document.querySelector('#operation-detail');
+    const acknowledge = document.querySelector('#acknowledge-outcome');
     const urlInput = document.querySelector('#moonraker-url');
     const connectButton = document.querySelector('#connect-button');
 
@@ -107,15 +117,23 @@
     function setStatus(status, message) {
       const labels = {
         ready: 'READY', busy: 'BUSY', disconnected: 'DISCONNECTED',
-        error: 'ERROR', 'emergency-stop': 'EMERGENCY STOP'
+        error: 'ERROR', 'emergency-stop': 'EMERGENCY STOP',
+        'stop-pending': 'STOP REQUESTING', 'stop-acknowledged': 'STOP ACKNOWLEDGED',
+        'stop-unconfirmed': 'STOP UNCONFIRMED', 'outcome-unknown': 'OUTCOME UNKNOWN'
       };
+      if (emergency && stopState) status = stopState;
+      else if (uncertainCommands.has(controllerKey)) status = 'outcome-unknown';
       elements.statusValue.textContent = labels[status] || String(status).toUpperCase();
       elements.statusValue.title = message || '';
       elements.statusLamp.dataset.status = status;
     }
 
     function setControls() {
-      const blocked = busy || emergency || connecting || !connected;
+      const uncertain = uncertainCommands.has(controllerKey);
+      const blocked = busy || emergency || connecting || !connected || uncertain;
+      connectionState.textContent = connecting ? 'CONNECTING' : connected ? 'CONNECTED' : 'DISCONNECTED';
+      acknowledge.hidden = !uncertain;
+      acknowledge.disabled = !connected || busy || connecting || emergency || stopping;
       document.querySelectorAll('[data-motion-control]').forEach((control) => {
         control.disabled = blocked || (mode === 'moonraker' && (control.dataset.axis?.startsWith('theta') ||
           (control === elements.home && !global.MOONRAKER_CONFIG.linearHomingVerified)));
@@ -132,6 +150,23 @@
       elements.emergency.disabled = false;
     }
 
+    function showPositionAge() {
+      const age = positionUpdated === null ? null : Math.floor((Date.now() - positionUpdated) / 1000);
+      const stale = positionStale || age > 5;
+      positionTime.dataset.stale = String(stale);
+      positionTime.textContent = age === null ? 'No sample' :
+        `${new Date(positionUpdated).toLocaleTimeString()} · ${age}s ago${stale ? ' · STALE' : ' · snapshot'}`;
+    }
+
+    function invalidateReadings() {
+      readingGeneration++;
+      connected = false;
+      positionStale = true;
+      panel?.invalidate();
+      renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+      showPositionAge();
+    }
+
     function renderPosition(position) {
       Object.keys(AXIS_META).forEach((axis) => {
         const output = document.querySelector(`[data-position="${axis}"]`);
@@ -143,17 +178,17 @@
 
     async function refreshPosition({ quiet = false } = {}) {
       const requestRobot = robot;
+      const ownGeneration = readingGeneration;
       try {
         const position = await requestRobot.getPosition();
-        if (requestRobot !== robot) return;
+        if (requestRobot !== robot || ownGeneration !== readingGeneration) return;
         renderPosition(position);
+        positionUpdated = Date.now(); positionStale = false; showPositionAge();
         if (!quiet) log('Position refreshed');
       } catch (error) {
-        if (requestRobot !== robot) return;
+        if (requestRobot !== robot || ownGeneration !== readingGeneration) return;
         if (robot.getStatus() === 'disconnected') {
-          connected = false;
-          panel?.stop();
-          renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+          invalidateReadings();
           if (!emergency) setStatus('disconnected', error.message);
           setControls();
         }
@@ -167,7 +202,7 @@
     }
 
     async function runMotion(action, requestMessage, completeMessage) {
-      if (busy || emergency || connecting || !connected) {
+      if (busy || emergency || connecting || !connected || uncertainCommands.has(controllerKey)) {
         log(emergency ? 'Control blocked: emergency stop is active' : 'Control blocked: busy or disconnected', 'warn');
         return;
       }
@@ -175,18 +210,29 @@
       setStatus('busy');
       setControls();
       log(requestMessage);
+      operationDetail.textContent = requestMessage;
+      operationDetail.dataset.warning = 'false';
       try {
         await action();
         await refreshPosition({ quiet: true });
         if (!emergency && connected) {
           setStatus('ready');
           log(completeMessage());
+          operationDetail.textContent = completeMessage();
         }
       } catch (error) {
         if (robot.getStatus() === 'disconnected') {
-          connected = false; panel?.stop();
-          renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+          invalidateReadings();
         }
+        if (error.outcomeUnknown) {
+          const message = `${requestMessage}: execution outcome unknown. Not retried. Reconnect, inspect controller state, then unlock.`;
+          uncertainCommands.set(controllerKey, message);
+          if (!emergency) {
+            operationDetail.textContent = message;
+            operationDetail.dataset.warning = 'true';
+          }
+          log(message, 'warn');
+        } else if (!emergency) operationDetail.textContent = error.message;
         if (!emergency) setStatus('error', error.message);
         log(error.message, 'error');
       } finally {
@@ -252,10 +298,17 @@
     async function connect(selectedMode) {
       if (busy || connecting || stopping) return;
       connecting = true;
+      readingGeneration++;
       connected = false;
       panel?.stop();
       mode = selectedMode;
       emergency = false;
+      stopState = null;
+      positionUpdated = null; positionStale = true; showPositionAge();
+      renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+      controllerKey = mode === 'mock' ? 'mock' : urlInput.value.trim().replace(/\/$/, '');
+      operationDetail.textContent = uncertainCommands.get(controllerKey) || 'No command pending';
+      operationDetail.dataset.warning = String(uncertainCommands.has(controllerKey));
       robot = createRobot(mode);
       elements.modeValue.textContent = mode.toUpperCase();
       elements.modeSelect.value = mode;
@@ -294,11 +347,18 @@
     panel = global.initializeCommissioning(document, {
       run: runMotion, log, controls: setControls,
       fault(error) {
-        connected = false;
-        renderPosition({ X: null, Z: null, theta1: null, theta2: null });
+        invalidateReadings();
         if (!emergency) setStatus('disconnected', error.message);
         setControls(); log(`Telemetry failed: ${error.message}`, 'error');
       }
+    });
+    acknowledge.addEventListener('click', () => {
+      if (!connected || busy || connecting || emergency || stopping) return;
+      uncertainCommands.delete(controllerKey);
+      operationDetail.textContent = 'Operator acknowledged controller state check; previous command was not replayed.';
+      operationDetail.dataset.warning = 'false';
+      log(operationDetail.textContent, 'warn');
+      setStatus('ready'); setControls();
     });
     connectButton.addEventListener('click', () => connect(elements.modeSelect.value));
     elements.modeSelect.addEventListener('change', () => connect(elements.modeSelect.value));
@@ -316,12 +376,22 @@
       stopping = true;
       log('EMERGENCY STOP requested', 'emergency');
       emergency = true;
-      setStatus('emergency-stop');
+      stopState = 'stop-pending';
+      operationDetail.textContent = 'Emergency stop request in progress; stop is not yet confirmed.';
+      operationDetail.dataset.warning = 'true';
+      setStatus(stopState);
       setControls();
       try {
         await robot.emergencyStop();
-        log('EMERGENCY STOP active', 'emergency');
+        stopState = mode === 'mock' ? 'emergency-stop' : 'stop-acknowledged';
+        operationDetail.textContent = mode === 'mock' ? 'Mock emergency stop active.' : 'Server acknowledged stop request. Physical stop has not been independently verified.';
+        setStatus(stopState);
+        log(operationDetail.textContent, 'emergency');
       } catch (error) {
+        stopState = 'stop-unconfirmed';
+        invalidateReadings();
+        operationDetail.textContent = 'Stop request failed · actual stop unconfirmed. Controls remain locked; check the machine.';
+        setStatus(stopState);
         log(`Emergency stop request failed: ${error.message}`, 'error');
       } finally {
         stopping = false;
@@ -335,11 +405,13 @@
       try {
         await robot.resetEmergencyStop();
         emergency = false;
+        stopState = null;
         if (!panel.isBound()) await panel.bind(robot, mode);
         else await panel.refresh();
         await refreshPosition({ quiet: true });
         connected = true;
         setStatus('ready');
+        operationDetail.textContent = 'Mock emergency stop reset'; operationDetail.dataset.warning = 'false';
         log('Mock emergency stop reset', 'warn');
       } catch (error) {
         log(error.message, 'error');
@@ -360,6 +432,8 @@
     });
 
     connect(CONFIG.mode);
+    const ageTimer = setInterval(showPositionAge, 1000);
+    global.addEventListener?.('pagehide', () => { clearInterval(ageTimer); panel.stop(); }, { once: true });
     return { jog, connect, refreshPosition };
   }
 
