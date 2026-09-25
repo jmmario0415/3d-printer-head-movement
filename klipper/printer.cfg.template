@@ -1,0 +1,43 @@
+# 4축 프린터용 Klipper 설정 초안
+# 이 파일은 실제 장비에 그대로 올리면 안 됩니다.
+# 각 <...> 값은 배선도, 모터 라벨, 센서 데이터시트, 기구 도면을 확인한 뒤 교체하세요.
+#
+# 사용 방법: 검증한 Octopus 보드용 generic config를 먼저 준비한 후,
+# 이 내용을 필요한 섹션에 병합합니다. 보드/MCU 종류에 따라 핀 설정은 다릅니다.
+
+[mcu]
+# 라즈베리파이에서 `ls /dev/serial/by-id/*`로 확인한 실제 값을 넣습니다.
+serial: <OCTOPUS_SERIAL_BY_ID>
+
+[printer]
+# 실제 기구학이 확정될 때까지 cartesian을 확정값으로 사용하지 마세요.
+kinematics: <CONFIRM_KINEMATICS>
+max_velocity: <CONFIRM_MAX_VELOCITY>
+max_accel: <CONFIRM_MAX_ACCEL>
+
+# X와 Z, theta1/theta2의 stepper 섹션은 기구와 드라이버 배치가 확정된 뒤 작성합니다.
+# step/dir/enable/endstop 핀, microsteps, rotation_distance, 기계 한계를 반드시 검증합니다.
+# [stepper_x]
+# [stepper_z]
+# [stepper_theta1]  # 표준 Klipper 축명이 아닐 수 있으므로 기구학 설계 후 결정
+# [stepper_theta2]
+
+# 아래 장치 이름은 웹 시운전 UI와 연결할 때 사용하는 Moonraker 객체명입니다.
+# 실제 핀, sensor_type, 보호 한계가 완성된 뒤 주석을 해제해 작성합니다.
+# [extruder]              -> UI object: extruder
+# [heater_bed]            -> UI object: heater_bed
+# [fan]                   -> UI object: fan
+# [fan_generic cooling_fan] -> UI object: fan_generic cooling_fan
+
+# UI에서 호출할 매크로 이름의 자리입니다. 안전 순서와 실제 축 명령이 정해진 뒤 작성합니다.
+# [gcode_macro TEST_FANS]
+# gcode:
+#   # 검증한 팬 명령만 작성
+
+# [gcode_macro TEST_HEATERS]
+# gcode:
+#   # 보호 한계와 안전 절차가 검증된 뒤 작성
+
+# [gcode_macro TEST_MOTORS]
+# gcode:
+#   # 저속·짧은 거리부터 검증한 축 이동만 작성

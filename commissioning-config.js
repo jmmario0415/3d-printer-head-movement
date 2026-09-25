@@ -13,6 +13,8 @@
   };
   // Fill ONLY from the verified printer.cfg. See README.md for the schema.
   // Empty mappings intentionally disable real heater/fan/macro controls.
+
+  // 이 부분에 실제 연결 값 매핑
   const MOONRAKER_CONFIG = { heaters: {}, fans: {}, macros: {}, linearHomingVerified: false };
   Object.assign(global, { COMMISSIONING, MOONRAKER_CONFIG });
   if (typeof module !== 'undefined' && module.exports) module.exports = { COMMISSIONING, MOONRAKER_CONFIG };

@@ -89,6 +89,10 @@ Theta1/Theta2의 실제 Jog·위치·호밍은 계속 미구성입니다. 매크
 
 API 기준 문서: [Moonraker printer API](https://moonraker.readthedocs.io/en/latest/external_api/printer/), [Klipper G-codes](https://www.klipper3d.org/G-Codes.html).
 
+## 라즈베리파이·Octopus 준비
+
+실제 장비용 Klipper와 Moonraker 설치, Octopus 펌웨어 빌드·플래시, 파일 위치 및 첫 검증 순서는 [klipper/README.md](klipper/README.md)에 정리했습니다. 실물 없이 작성 가능한 설정 초안은 [klipper/printer.cfg.template](klipper/printer.cfg.template)이며, 기체에 적용하기 전 보드 모델·MCU·배선·센서·기구 사양으로 완성해야 합니다.
+
 ## 테스트
 
 ```powershell
