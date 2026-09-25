@@ -1,6 +1,6 @@
 # 4축 프린터 시운전 프로그램
 
-순수 HTML / CSS / JavaScript로 만든 하드웨어 단위 테스트용 웹 UI입니다. 기본 실행은 **Mock**이며 실제 장비에 자동 연결하지 않습니다. 통합 디스플레이, AI 제어, 슬라이싱 및 역기구학은 이번 구현 범위에 포함하지 않습니다.
+순수 HTML / CSS / JavaScript로 만든 하드웨어 단위 테스트용 웹 UI입니다.
 
 ## 실행
 
@@ -57,8 +57,6 @@ await robot.runMacro('fans');
 UI에서 G-code나 특정 장치의 HTTP 요청을 만들지 않습니다. 실제 연결 오류는 URL 경로와 원인을 Event Log에 기록합니다. 로그는 최근 500개까지 보관합니다.
 
 ## 실제 Moonraker 연결 설정
-
-실제 기체 테스트는 아직 수행하지 않았습니다. `commissioning-config.js`의 `MOONRAKER_CONFIG`는 기본적으로 비어 있습니다. Mock 값으로 실제 설정을 자동 생성하거나 대체하지 않습니다.
 
 1. `printer.cfg`와 실제 장치 구성을 확인합니다.
 2. 아래 스키마에 따라 매핑을 작성한 후 페이지를 새로고침합니다.
