@@ -4,7 +4,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 function createServer() {
-  const allowed = new Set(['index.html', 'style.css', 'app.js', 'mock-api.js', 'robot-api.js', 'commissioning-config.js', 'commissioning-ui.js']);
+  const allowed = new Set(['index.html', 'style.css', 'app.js', 'mock-api.js', 'robot-api.js', 'pi2-bridge-api.js', 'commissioning-config.js', 'commissioning-ui.js']);
   return http.createServer((req, res) => {
     const name = new URL(req.url, 'http://localhost').pathname.slice(1) || 'index.html';
     if (!allowed.has(name)) { res.writeHead(404); res.end('Not found'); return; }

@@ -33,7 +33,7 @@ test('Mock validates devices, targets and percentages without changing outputs',
 
 test('all four Mock macros execute, motors return to their start, heating and fans end off', async () => {
   const robot = new MockRobot({ simulateDelay: false, limits: CONFIG.limits }); await robot.connect();
-  await robot.jog('X', 300, 5);
+  await robot.jog('X', 150, 5);
   const before = await robot.getPosition();
   await robot.runMacro('motors');
   assert.deepEqual(await robot.getPosition(), before);

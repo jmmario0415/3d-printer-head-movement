@@ -91,6 +91,25 @@ API 기준 문서: [Moonraker printer API](https://moonraker.readthedocs.io/en/l
 
 실제 장비용 Klipper와 Moonraker 설치, Octopus 펌웨어 빌드·플래시, 파일 위치 및 첫 검증 순서는 [klipper/README.md](klipper/README.md)에 정리했습니다. 실물 없이 작성 가능한 설정 초안은 [klipper/printer.cfg.template](klipper/printer.cfg.template)이며, 기체에 적용하기 전 보드 모델·MCU·배선·센서·기구 사양으로 완성해야 합니다.
 
+## 고정 Pi2 제어기와 웹 UI 연결
+
+`pi2-motor-control`은 차동축 계산, 안전 한계, 체크포인트 및 Moonraker 명령 생성을 담당하는 고정 하드웨어 제어기입니다. 웹 UI는 `Pi2 Bridge` 모드에서 새 [pi2-web-bridge](pi2-web-bridge/README.md)를 통해 이 제어기에 논리 목표 좌표만 전달합니다. 웹 UI가 `MANUAL_STEPPER` 또는 UPPER/LOWER 모터 명령을 직접 만들지 않습니다.
+
+Pi에서의 첫 사용은 로컬 브라우저 기준입니다.
+
+```bash
+# 터미널 1: Pi2 브리지
+cd ~/3d-printer-head-movement/pi2-web-bridge
+export PI2_MOTOR_CONTROL_DIR="$HOME/pi2-motor-control"
+export PI2_WEB_UI_ROOT="$HOME/3d-printer-head-movement"
+python3 bridge.py
+
+```
+
+Pi 브라우저에서 `http://127.0.0.1:8766`를 열고 Controller에서 **Pi2 Bridge**를 선택합니다. 브리지가 이 웹 UI 파일도 함께 제공하므로 Pi에서 Node.js를 실행할 필요가 없습니다. `REFERENCE HOME / ZERO`는 자동 원점 복귀가 아니며, 작업자가 기구를 물리 기준 위치에 맞춘 뒤 명시적으로 좌표만 등록합니다.
+
+Pi2의 `config/machine.json`에 `calibration_verified: false`가 남아 있으면 브리지는 상태 조회만 허용하고 이동을 차단합니다. 실측 보정과 저속 구동 확인 뒤에만 해당 고정 파일에서 `true`로 변경하세요. `extrusion_enabled`는 압출·온도 인터록 검증 전까지 `false`로 유지합니다.
+
 ## 테스트
 
 ```powershell

@@ -24,6 +24,7 @@
           <select id="mode-select" aria-label="Controller mode">
             <option value="mock" selected>Mock</option>
             <option value="moonraker">Moonraker</option>
+            <option value="pi2-bridge">Pi2 Bridge</option>
           </select>
         </label>
         <div class="state-readout">
@@ -44,7 +45,8 @@
     <main>
       <div class="connection-bar">
         <strong id="source-note">MOCK · simulated devices only</strong>
-        <label>Moonraker URL <input id="moonraker-url" type="url" placeholder="Controller base URL" aria-label="Moonraker base URL"></label>
+        <label id="controller-url-label">Moonraker URL <input id="moonraker-url" type="url" placeholder="Controller base URL" aria-label="Controller base URL"></label>
+        <label id="bridge-token-label" hidden>Bridge token <input id="bridge-token" type="password" autocomplete="off" aria-label="Pi2 bridge token"></label>
         <button id="connect-button" class="control-button" type="button">RECONNECT</button>
         <span>Mappings: commissioning-config.js</span>
       </div>
@@ -152,7 +154,7 @@
               <button id="refresh-button" type="button" class="control-button">REFRESH POSITION</button>
               <button id="reset-emergency-button" type="button" class="control-button reset-control" hidden>RESET MOCK E-STOP</button>
             </div>
-            <p class="control-caveat">Moonraker mode: HOME sends <code>G28 X Z</code> only. Rotary home/zero remains unconfigured.</p>
+            <p id="control-caveat" class="control-caveat">Moonraker mode: HOME sends <code>G28 X Z</code> only. Rotary home/zero remains unconfigured.</p>
           </div>
         </section>
       </div>
@@ -175,6 +177,7 @@
   <script src="commissioning-config.js"></script>
   <script src="mock-api.js"></script>
   <script src="robot-api.js"></script>
+  <script src="pi2-bridge-api.js"></script>
   <script src="commissioning-ui.js"></script>
   <script src="app.js"></script>
 </body>

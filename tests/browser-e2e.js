@@ -97,8 +97,8 @@ async function main() {
   assert.equal((await positions()).Z, '5.000 mm');
   await clickJog('theta1', '10');
   assert.equal((await positions()).theta1, '10.000 °');
-  await clickJog('theta2', '-5');
-  assert.equal((await positions()).theta2, '-5.000 °');
+  await clickJog('theta2', '5');
+  assert.equal((await positions()).theta2, '5.000 °');
 
   await clickJog('X', '-50');
   assert.equal((await positions()).X, '9.000 mm');

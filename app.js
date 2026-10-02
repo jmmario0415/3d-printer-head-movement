@@ -8,13 +8,12 @@
     defaultRotarySpeed: 10,
     defaultKeyboardLinearStep: 1,
     defaultKeyboardRotaryStep: 1,
-    // DEVELOPMENT-ONLY placeholders. These are not final machine specifications.
-    // UI software limits supplement, and never replace, Klipper/hardware safety limits.
+    // Mirrored from the fixed pi2-motor-control/config/machine.json.
     limits: Object.freeze({
-      X: Object.freeze({ min: 0, max: 300, unit: 'mm' }),
-      Z: Object.freeze({ min: 0, max: 200, unit: 'mm' }),
-      theta1: Object.freeze({ min: -180, max: 180, unit: 'deg' }),
-      theta2: Object.freeze({ min: -180, max: 180, unit: 'deg' })
+      X: Object.freeze({ min: 0, max: 150, unit: 'mm' }),
+      Z: Object.freeze({ min: 0, max: 150, unit: 'mm' }),
+      theta1: Object.freeze({ min: -270, max: 270, unit: 'deg' }),
+      theta2: Object.freeze({ min: 0, max: 90, unit: 'deg' })
     })
   });
 
@@ -96,12 +95,16 @@
     const operationDetail = document.querySelector('#operation-detail');
     const acknowledge = document.querySelector('#acknowledge-outcome');
     const urlInput = document.querySelector('#moonraker-url');
+    const urlLabel = document.querySelector('#controller-url-label');
+    const bridgeToken = document.querySelector('#bridge-token');
+    const bridgeTokenLabel = document.querySelector('#bridge-token-label');
+    const caveat = document.querySelector('#control-caveat');
     const connectButton = document.querySelector('#connect-button');
 
     function createRobot(selectedMode) {
-      return selectedMode === 'mock'
-        ? new global.MockRobot({ limits: CONFIG.limits, simulateDelay: true })
-        : new global.MoonrakerRobot({ baseUrl: urlInput.value.trim(), config: global.MOONRAKER_CONFIG });
+      if (selectedMode === 'mock') return new global.MockRobot({ limits: CONFIG.limits, simulateDelay: true });
+      if (selectedMode === 'pi2-bridge') return new global.Pi2BridgeRobot({ baseUrl: urlInput.value.trim(), token: bridgeToken.value });
+      return new global.MoonrakerRobot({ baseUrl: urlInput.value.trim(), config: global.MOONRAKER_CONFIG });
     }
 
     function log(message, level = 'info') {
@@ -135,8 +138,12 @@
       acknowledge.hidden = !uncertain;
       acknowledge.disabled = !connected || busy || connecting || emergency || stopping;
       document.querySelectorAll('[data-motion-control]').forEach((control) => {
-        control.disabled = blocked || (mode === 'moonraker' && (control.dataset.axis?.startsWith('theta') ||
-          (control === elements.home && !global.MOONRAKER_CONFIG.linearHomingVerified)));
+        const axis = control.dataset.axis;
+        const axisUnsupported = mode === 'moonraker' && axis?.startsWith('theta');
+        const bridgeLocked = mode === 'pi2-bridge' && control !== elements.home && !robot?.isMotionEnabled();
+        const homeUnsupported = control === elements.home && ((mode === 'moonraker' && !global.MOONRAKER_CONFIG.linearHomingVerified) ||
+          (mode === 'pi2-bridge' && !robot?.canHome()));
+        control.disabled = blocked || axisUnsupported || bridgeLocked || homeUnsupported;
       });
       document.querySelectorAll('[data-device-control]').forEach((control) => {
         control.disabled = blocked || control.dataset.unavailable === 'true';
@@ -144,7 +151,8 @@
       elements.refresh.disabled = busy || connecting || !connected;
       elements.modeSelect.disabled = busy || connecting || stopping;
       connectButton.disabled = busy || connecting || stopping;
-      urlInput.disabled = mode !== 'moonraker' || busy || connecting || stopping;
+      urlInput.disabled = mode === 'mock' || busy || connecting || stopping;
+      bridgeToken.disabled = mode !== 'pi2-bridge' || busy || connecting || stopping;
       elements.resetEmergency.hidden = mode !== 'mock';
       elements.resetEmergency.disabled = !emergency || busy || connecting || stopping;
       elements.emergency.disabled = false;
@@ -302,17 +310,28 @@
       connected = false;
       panel?.stop();
       mode = selectedMode;
+      if (mode === 'pi2-bridge' && !urlInput.value.trim()) {
+        urlInput.value = global.location?.protocol?.startsWith('http') ? global.location.origin : 'http://127.0.0.1:8766';
+      }
       emergency = false;
       stopState = null;
       positionUpdated = null; positionStale = true; showPositionAge();
       renderPosition({ X: null, Z: null, theta1: null, theta2: null });
-      controllerKey = mode === 'mock' ? 'mock' : urlInput.value.trim().replace(/\/$/, '');
+      controllerKey = mode === 'mock' ? 'mock' : `${mode}:${urlInput.value.trim().replace(/\/$/, '')}`;
       operationDetail.textContent = uncertainCommands.get(controllerKey) || 'No command pending';
       operationDetail.dataset.warning = String(uncertainCommands.has(controllerKey));
       robot = createRobot(mode);
       elements.modeValue.textContent = mode.toUpperCase();
       elements.modeSelect.value = mode;
-      document.querySelector('#source-note').textContent = mode === 'mock' ? 'MOCK · simulated devices only' : 'MOONRAKER · real hardware control';
+      document.querySelector('#source-note').textContent = mode === 'mock' ? 'MOCK · simulated devices only' :
+        mode === 'pi2-bridge' ? 'PI2 BRIDGE · logical-axis control via fixed Pi2 controller' : 'MOONRAKER · real hardware control';
+      urlLabel.firstChild.textContent = mode === 'pi2-bridge' ? 'Bridge URL ' : 'Moonraker URL ';
+      urlInput.placeholder = mode === 'pi2-bridge' ? 'http://127.0.0.1:8766' : 'Controller base URL';
+      bridgeTokenLabel.hidden = mode !== 'pi2-bridge';
+      elements.home.textContent = mode === 'pi2-bridge' ? 'REFERENCE HOME / ZERO' : 'HOME / ZERO';
+      caveat.innerHTML = mode === 'pi2-bridge' ?
+        'Pi2 Bridge: manually place the mechanism at its physical reference first; <code>REFERENCE HOME / ZERO</code> records coordinates without moving.' :
+        'Moonraker mode: HOME sends <code>G28 X Z</code> only. Rotary home/zero remains unconfigured.';
       setStatus('disconnected');
       setControls();
       log(`Connecting in ${mode.toUpperCase()} mode…`);
@@ -331,7 +350,8 @@
         if (emergency) throw new Error('Connection interrupted by emergency stop.');
         connected = true;
         setStatus('ready');
-        log(mode === 'mock' ? 'Mock controller ready' : 'Moonraker connection ready');
+        log(mode === 'mock' ? 'Mock controller ready' : mode === 'pi2-bridge' ?
+          (robot.isMotionEnabled() ? 'Pi2 bridge ready for logical-axis motion' : robot.motionBlockReason()) : 'Moonraker connection ready');
       } catch (error) {
         panel?.stop();
         if (!emergency) setStatus('disconnected', error.message);
@@ -362,14 +382,17 @@
     });
     connectButton.addEventListener('click', () => connect(elements.modeSelect.value));
     elements.modeSelect.addEventListener('change', () => connect(elements.modeSelect.value));
-    elements.home.addEventListener('click', () => runMotion(
-      () => {
-        if (mode === 'moonraker' && !global.MOONRAKER_CONFIG.linearHomingVerified) throw new Error('Linear homing is not verified in commissioning-config.js.');
-        return robot.home();
-      },
-      mode === 'mock' ? 'HOME / ZERO requested' : 'Linear X/Z homing requested',
-      () => mode === 'mock' ? 'HOME / ZERO complete → all axes 0' : 'Linear X/Z homing complete'
-    ));
+    elements.home.addEventListener('click', () => {
+      if (mode === 'pi2-bridge' && !global.confirm('The mechanism must already be at its physical reference position. This records the Pi2 home coordinates and does not move hardware. Continue?')) return;
+      runMotion(
+        () => {
+          if (mode === 'moonraker' && !global.MOONRAKER_CONFIG.linearHomingVerified) throw new Error('Linear homing is not verified in commissioning-config.js.');
+          return robot.home();
+        },
+        mode === 'mock' ? 'HOME / ZERO requested' : mode === 'pi2-bridge' ? 'Pi2 home reference requested' : 'Linear X/Z homing requested',
+        () => mode === 'mock' ? 'HOME / ZERO complete → all axes 0' : mode === 'pi2-bridge' ? 'Pi2 home reference recorded' : 'Linear X/Z homing complete'
+      );
+    });
     elements.refresh.addEventListener('click', () => refreshPosition().catch(() => {}));
     elements.emergency.addEventListener('click', async () => {
       if (stopping || !robot) return;
